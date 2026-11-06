@@ -1,0 +1,1578 @@
+# PROMPT MAESTRO — DESARROLLO DE APLICACIÓN MÓVIL DE SEGURIDAD
+## Taller: OAuth 2.0 con PKCE, Almacenamiento Criptográfico y Step-Up 2FA (TOTP)
+### Universidad de La Sabana — Desarrollo de Aplicaciones Móviles
+
+---
+
+# 1. ROL Y RESPONSABILIDAD
+
+Actúa como un ingeniero de software senior especializado en:
+
+- Desarrollo de aplicaciones móviles con React Native y Expo.
+- TypeScript y arquitectura modular.
+- OAuth 2.0 y PKCE (RFC 7636).
+- Autenticación y autorización segura.
+- Criptografía aplicada y TOTP (RFC 6238).
+- Almacenamiento seguro en Android e iOS.
+- Desarrollo de APIs con Python y FastAPI.
+- Diseño de interfaces móviles profesionales.
+- Pruebas automatizadas y validación de seguridad.
+
+Tu responsabilidad es analizar, diseñar, desarrollar, probar y documentar una aplicación móvil funcional que implemente todos los requisitos del taller académico.
+
+No debes limitarte a generar una interfaz visual, una simulación de autenticación o código de ejemplo. Debes construir un sistema funcional donde el frontend y el backend estén conectados y los mecanismos de seguridad realmente operen.
+
+**Prioridad principal:** cumplir íntegramente los requisitos técnicos y las cinco pruebas de aceptación del taller, manteniendo una arquitectura limpia, modular, mantenible y correctamente tipada.
+
+Debes trabajar como si estuvieras desarrollando un producto que posteriormente podría ampliarse, no como si estuvieras preparando una maqueta desechable.
+
+---
+
+# 2. CONTEXTO DEL PROYECTO
+
+El proyecto corresponde al taller:
+
+**Seguridad Móvil — OAuth 2.0 con PKCE, Almacenamiento Criptográfico y Step-Up 2FA (TOTP).**
+
+Institución: Universidad de La Sabana — Facultad de Ingeniería.
+
+Curso: Desarrollo de Aplicaciones Móviles.
+
+El propósito es demostrar que una aplicación móvil puede implementar una arquitectura de autenticación segura sin depender de mecanismos superficiales como:
+
+- Variables booleanas para determinar si un usuario está autenticado.
+- Contraseñas almacenadas directamente en el dispositivo.
+- Tokens guardados en AsyncStorage.
+- WebViews embebidas para iniciar sesión.
+- Librerías de alto nivel que realicen todo el algoritmo TOTP.
+- Simulaciones visuales de autenticación sin validación real.
+- Acceso a recursos sensibles sin verificar el segundo factor.
+
+La aplicación debe demostrar cuatro grandes componentes:
+
+1. OAuth 2.0 con PKCE y navegador seguro del sistema operativo.
+2. Gestión del ciclo de vida de tokens y almacenamiento seguro.
+3. Authenticator propio basado en TOTP (RFC 6238).
+4. Step-Up Authentication con protección Anti-Replay en el backend.
+
+El proyecto debe funcionar principalmente en dispositivos Android, pero la arquitectura debe procurar compatibilidad con iOS.
+
+---
+
+# 3. STACK TECNOLÓGICO OBLIGATORIO
+
+## 3.1. Aplicación móvil
+
+Utilizar:
+
+- React Native.
+- Expo SDK 58.
+- TypeScript.
+- React 19.3 y React Native 0.88, correspondientes a Expo SDK 58.
+- Expo Router para navegación, si resulta compatible con las necesidades del proyecto.
+- Expo SecureStore para almacenamiento seguro.
+- Expo WebBrowser para el flujo OAuth.
+- Expo Linking para Deep Linking.
+- Expo Crypto para primitivas criptográficas.
+- Expo Camera para el escaneo de códigos QR, si se implementa.
+- Axios o un cliente HTTP modular basado en fetch.
+- React Context o Zustand para gestionar estados globales.
+
+No mezclar versiones arbitrarias de React Native, React y Expo.
+
+Antes de instalar dependencias:
+
+1. Verificar la compatibilidad con Expo SDK 58.
+2. Consultar la documentación oficial.
+3. Instalar los paquetes Expo mediante `npx expo install` cuando corresponda.
+4. Ejecutar `npx expo-doctor`.
+5. Resolver incompatibilidades antes de continuar.
+
+No utilizar APIs eliminadas o incompatibles con React Native 0.88.
+
+## 3.2. Backend
+
+Utilizar:
+
+- Python 3.
+- FastAPI.
+- Pydantic.
+- Uvicorn.
+- SQLite para persistencia ligera cuando sea necesario.
+- PyJWT o una alternativa mantenida para gestionar JWT.
+- Bibliotecas criptográficas de bajo nivel para HMAC y SHA-1.
+- Pytest para pruebas automatizadas.
+
+El backend debe ejecutarse localmente y exponer una API REST consumida por la aplicación.
+
+No es necesario implementar infraestructura pesada, contenedores complejos, orquestadores externos ni servicios cloud.
+
+## 3.3. Restricciones
+
+- No utilizar librerías de alto nivel de TOTP como `otplib` o `speakeasy`.
+- No almacenar tokens en AsyncStorage.
+- No utilizar WebView estándar para autenticación.
+- No incluir `client_secret` dentro de la aplicación móvil.
+- No almacenar contraseñas ni secretos en el código fuente.
+- No simular las respuestas del backend cuando la funcionalidad deba ser real.
+- No dejar botones que no ejecuten acciones.
+- No utilizar datos sensibles reales para las pruebas.
+
+---
+
+# 4. OBJETIVO FUNCIONAL DE LA APLICACIÓN
+
+Construir una aplicación móvil de seguridad que permita al usuario:
+
+1. Iniciar sesión mediante OAuth 2.0 con PKCE.
+2. Autenticarse mediante el navegador seguro del dispositivo.
+3. Regresar a la aplicación mediante Deep Linking.
+4. Mantener una sesión mediante access_token y refresh_token.
+5. Renovar automáticamente los tokens cuando expiren.
+6. Generar códigos TOTP de seis dígitos desde la propia aplicación.
+7. Generar códigos incluso sin conexión a Internet.
+8. Configurar una semilla TOTP manualmente o mediante QR.
+9. Comparar el resultado con Google Authenticator.
+10. Intentar acceder a una bóveda que requiere autenticación adicional.
+11. Recibir una solicitud de Step-Up Authentication.
+12. Introducir el código TOTP para elevar temporalmente los privilegios.
+13. Acceder a la bóveda solamente después de una verificación exitosa.
+14. Rechazar la reutilización de un código TOTP ya utilizado.
+
+La aplicación debe incluir una experiencia visual coherente que permita demostrar todos estos procesos durante una sustentación de cinco minutos.
+
+---
+
+# 5. ARQUITECTURA GENERAL
+
+Divide el proyecto en dos aplicaciones independientes dentro de un mismo repositorio:
+
+```text
+security-mobile-workshop/
+│
+├── mobile-app/
+│   ├── app/
+│   ├── src/
+│   ├── assets/
+│   ├── components/
+│   ├── features/
+│   ├── services/
+│   ├── hooks/
+│   ├── context/
+│   ├── navigation/
+│   ├── utils/
+│   ├── constants/
+│   ├── types/
+│   ├── config/
+│   ├── tests/
+│   ├── app.json
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── backend-auth/
+│   ├── app/
+│   │   ├── api/
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── services/
+│   │   ├── repositories/
+│   │   ├── security/
+│   │   └── main.py
+│   │
+│   ├── tests/
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── README.md
+│
+├── README.md
+└── .gitignore
+```
+
+La estructura puede ajustarse si existe una justificación técnica, pero se debe mantener una separación clara de responsabilidades.
+
+## 5.1. Responsabilidades del frontend
+
+Separar:
+
+- Presentación: pantallas y componentes.
+- Lógica de negocio: autenticación, sesiones, TOTP y bóveda.
+- Infraestructura: HTTP, SecureStore y navegación.
+- Estado global: sesión, usuario, tokens y estado de autenticación.
+- Criptografía: generación de secretos y cálculo TOTP.
+
+Ninguna pantalla debe implementar directamente operaciones criptográficas complejas o realizar peticiones HTTP sin pasar por los servicios correspondientes.
+
+## 5.2. Responsabilidades del backend
+
+Separar:
+
+- API REST.
+- Autenticación OAuth.
+- Validación PKCE.
+- Gestión de tokens.
+- Verificación TOTP.
+- Control de privilegios.
+- Protección Anti-Replay.
+- Acceso a recursos protegidos.
+- Persistencia.
+
+Los endpoints deben delegar su lógica a servicios independientes.
+
+---
+
+# 6. DISEÑO DE LA INTERFAZ Y EXPERIENCIA DE USUARIO
+
+La aplicación debe tener una interfaz profesional, moderna y coherente.
+
+No quiero una interfaz genérica que parezca una plantilla predeterminada de React Native.
+
+## 6.1. Dirección visual
+
+Desarrolla una identidad visual relacionada con seguridad digital, autenticación y protección de información.
+
+Características:
+
+- Diseño moderno y minimalista.
+- Apariencia tecnológica.
+- Jerarquía visual clara.
+- Buen uso de espacios.
+- Tipografía legible.
+- Iconografía consistente.
+- Componentes reutilizables.
+- Animaciones sutiles.
+- Transiciones fluidas.
+- Estados visuales claros.
+- Adaptación a diferentes tamaños de pantalla.
+
+Puedes proponer una paleta oscura con colores de acento relacionados con seguridad y tecnología, siempre manteniendo contraste y legibilidad.
+
+No sacrifiques funcionalidad para conseguir efectos visuales.
+
+## 6.2. Pantallas obligatorias
+
+### A. Splash / Welcome
+
+Debe presentar:
+
+- Identidad de la aplicación.
+- Nombre del producto.
+- Descripción breve.
+- Botón para iniciar sesión.
+- Indicadores visuales de seguridad.
+
+No debe asumir que el usuario ya está autenticado.
+
+### B. Login / OAuth
+
+Debe contener:
+
+- Información sobre el proceso de autenticación.
+- Botón principal: Iniciar sesión.
+- Indicador de conexión.
+- Estados de carga y errores.
+
+IMPORTANTE: la aplicación no debe solicitar la contraseña del usuario en un formulario propio. La autenticación se realizará mediante el navegador seguro del sistema operativo.
+
+### C. Dashboard principal
+
+Después de iniciar sesión, mostrar:
+
+- Nombre o identificador del usuario.
+- Estado de autenticación.
+- Estado de protección de la cuenta.
+- Estado de conexión.
+- Acceso al Authenticator.
+- Acceso a la Bóveda Crítica.
+- Información resumida de la sesión.
+- Acción para cerrar sesión.
+
+Debe ser la pantalla central desde la cual se accede a las funcionalidades.
+
+### D. Authenticator
+
+Esta es una de las pantallas principales del proyecto.
+
+Debe permitir:
+
+- Registrar una cuenta TOTP.
+- Introducir manualmente una semilla Base32.
+- Escanear un QR compatible con `otpauth://`.
+- Visualizar el nombre del emisor.
+- Visualizar el identificador de la cuenta.
+- Generar códigos de seis dígitos.
+- Actualizar automáticamente los códigos.
+- Mostrar una cuenta regresiva de 30 segundos.
+- Indicar visualmente el tiempo restante.
+- Copiar el código.
+- Mostrar estados de configuración y errores.
+
+El código debe tener tipografía monoespaciada y suficiente tamaño para facilitar su lectura.
+
+El temporizador debe actualizarse sin provocar renders innecesarios ni parpadeos.
+
+### E. Bóveda Crítica
+
+Debe representar un recurso protegido.
+
+Antes de la autorización adicional, mostrar una pantalla de acceso restringido con:
+
+- Icono de seguridad.
+- Descripción del recurso.
+- Estado: Protección adicional requerida.
+- Botón para solicitar acceso.
+
+Cuando el backend devuelva `403 Forbidden` con `mfa_required`, abrir automáticamente un modal o pantalla de verificación 2FA.
+
+Después de validar correctamente el segundo factor, permitir consultar el recurso protegido.
+
+No mostrar los datos sensibles antes de obtener autorización.
+
+### F. Modal / Pantalla de Step-Up 2FA
+
+Debe contener:
+
+- Explicación de por qué se necesita una verificación adicional.
+- Campo numérico de seis dígitos.
+- Teclado numérico optimizado.
+- Botón Verificar.
+- Indicador de procesamiento.
+- Mensajes de error.
+- Indicador de expiración de la solicitud, cuando corresponda.
+
+Debe permitir introducir un código y enviarlo al backend para validación.
+
+### G. Sesión / Seguridad
+
+Puede existir una pantalla de configuración o información de seguridad que permita visualizar:
+
+- Estado de la sesión.
+- Tiempo de expiración de los tokens, sin exponer su contenido.
+- Estado de MFA.
+- Estado de almacenamiento seguro.
+- Información de la cuenta.
+- Acción de cerrar sesión.
+
+Nunca mostrar tokens completos en pantalla ni en registros de depuración.
+
+---
+
+# 7. PUNTO 1 — OAUTH 2.0 CON PKCE (RFC 7636)
+
+Implementar el flujo OAuth 2.0 Authorization Code con Proof Key for Code Exchange.
+
+Las aplicaciones móviles son Public Clients. Por lo tanto, no pueden proteger de manera confiable un `client_secret`.
+
+## 7.1. Generación de PKCE
+
+Implementar un servicio independiente:
+
+`PkceService.ts`
+
+Debe generar:
+
+### code_verifier
+
+- Cadena aleatoria criptográficamente segura.
+- Longitud entre 43 y 128 caracteres.
+- Caracteres URL-safe permitidos.
+- No utilizar `Math.random()`.
+
+### code_challenge
+
+Calcular:
+
+`code_challenge = BASE64URL(SHA256(code_verifier))`
+
+La codificación Base64URL debe:
+
+- Sustituir `+` por `-`.
+- Sustituir `/` por `_`.
+- Eliminar el relleno `=`.
+
+Utilizar primitivas criptográficas compatibles con Expo SDK 58.
+
+## 7.2. Parámetro state
+
+Generar un `state` aleatorio y único por solicitud.
+
+Este parámetro debe proteger contra ataques CSRF.
+
+Cuando se reciba el callback:
+
+1. Extraer el `state`.
+2. Compararlo con el valor generado para esa solicitud.
+3. Rechazar el callback si no coincide.
+4. No realizar el intercambio del authorization_code si la validación falla.
+
+El valor debe mantenerse asociado a la solicitud de autenticación y no aceptarse reutilizaciones arbitrarias.
+
+## 7.3. Navegador seguro
+
+Utilizar:
+
+`WebBrowser.openAuthSessionAsync`
+
+No utilizar WebView embebida.
+
+El usuario debe autenticarse en el navegador del sistema operativo.
+
+## 7.4. Deep Linking
+
+Configurar un esquema personalizado.
+
+Ejemplo:
+
+`unisabana-auth://callback`
+
+Configurar correctamente:
+
+- app.json.
+- Scheme.
+- Redirect URI.
+- Expo Linking.
+- Callback OAuth.
+- Manejo de cancelaciones.
+- Manejo de errores.
+
+El callback debe ser procesado correctamente tanto cuando la aplicación está abierta como cuando debe reanudarse.
+
+## 7.5. Intercambio del código
+
+Una vez recibido y validado el callback:
+
+Enviar al backend:
+
+- authorization_code.
+- code_verifier.
+- redirect_uri.
+- client_id.
+
+Endpoint:
+
+`POST /auth/oauth/token`
+
+El backend debe verificar:
+
+`SHA256(code_verifier) === code_challenge`
+
+La comparación debe realizarse correctamente según la codificación Base64URL definida por PKCE.
+
+Solo después de validar el código y PKCE se deben emitir los tokens.
+
+## 7.6. Proveedor de identidad para el laboratorio
+
+El enunciado no especifica un proveedor externo concreto.
+
+Por tanto, implementar un proveedor OAuth de laboratorio controlado por el backend:
+
+- Endpoint de autorización.
+- Página de autenticación servida en el navegador del sistema.
+- Generación y almacenamiento temporal de authorization codes.
+- Asociación del código con el code_challenge.
+- Validación de redirect_uri y client_id.
+- Intercambio mediante PKCE.
+- Expiración y uso único de authorization codes.
+
+Las credenciales de demostración deben configurarse en el backend mediante variables de entorno o datos de prueba.
+
+La aplicación móvil nunca debe recoger esas credenciales directamente.
+
+Documentar claramente que este proveedor local es una implementación académica de demostración y no un proveedor de identidad listo para producción.
+
+---
+
+# 8. PUNTO 2 — GESTIÓN DE TOKENS Y ALMACENAMIENTO SEGURO
+
+Implementar una separación estricta entre access_token y refresh_token.
+
+## 8.1. Access Token
+
+Características:
+
+- Vida útil: 5 minutos.
+- Se almacena exclusivamente en memoria.
+- Puede gestionarse mediante AuthContext o un servicio de sesión.
+- No se guarda en AsyncStorage.
+- Se destruye al finalizar el proceso de la aplicación.
+
+## 8.2. Refresh Token
+
+Características:
+
+- Vida útil: 30 días.
+- Se almacena mediante Expo SecureStore.
+- Utiliza el almacenamiento seguro nativo del sistema.
+- Android: Android Keystore como respaldo criptográfico.
+- iOS: Keychain.
+- No se guarda en almacenamiento convencional.
+
+Crear un servicio:
+
+`SecureTokenStorage.ts`
+
+Responsabilidades:
+
+- Guardar refresh_token.
+- Recuperar refresh_token.
+- Eliminar refresh_token.
+- Verificar su existencia.
+- Manejar errores de almacenamiento.
+
+No guardar tokens en logs.
+
+## 8.3. AuthContext / SessionManager
+
+Implementar una gestión centralizada de sesión.
+
+Estados sugeridos:
+
+- INITIALIZING.
+- UNAUTHENTICATED.
+- AUTHENTICATING.
+- AUTHENTICATED.
+- REFRESHING.
+- SESSION_EXPIRED.
+- ERROR.
+
+El estado de autenticación debe depender de la validez de la sesión y no de un simple booleano persistente.
+
+## 8.4. Silent Refresh Queue
+
+Implementar un interceptor HTTP que gestione automáticamente los errores `401 Unauthorized`.
+
+Este mecanismo es obligatorio.
+
+Comportamiento:
+
+1. Una petición recibe HTTP 401.
+2. Se detienen temporalmente las solicitudes que dependen de la renovación.
+3. Se encolan las solicitudes afectadas.
+4. Se comprueba si ya existe una renovación en curso.
+5. Si no existe, se inicia una única petición:
+
+`POST /auth/refresh`
+
+6. Se envía el refresh_token recuperado desde SecureStore.
+7. El backend valida el token.
+8. Si es válido, emite un nuevo access_token.
+9. Se actualiza el access_token en memoria.
+10. Se reintentan las solicitudes pendientes.
+11. Se libera la cola.
+
+IMPORTANTE:
+
+No ejecutar una renovación independiente por cada petición concurrente.
+
+Implementar un mecanismo de promesa compartida o mutex para garantizar que exista una sola renovación activa.
+
+Evitar bucles infinitos de reintentos.
+
+La petición de refresh no debe utilizar el mismo interceptor de manera que genere recursión.
+
+## 8.5. Expiración o revocación
+
+Si el refresh_token:
+
+- Expiró.
+- Fue revocado.
+- Es inválido.
+- No existe.
+- No puede validarse.
+
+Entonces:
+
+1. Limpiar el almacenamiento seguro.
+2. Eliminar el access_token de memoria.
+3. Restablecer el estado de autenticación.
+4. Cancelar las solicitudes pendientes que ya no sean válidas.
+5. Navegar a Welcome/Login.
+6. Mostrar un mensaje informativo.
+
+No dejar al usuario en una pantalla protegida con una sesión inválida.
+
+---
+
+# 9. PUNTO 3 — AUTHENTICATOR PROPIO Y ALGORITMO TOTP (RFC 6238)
+
+Este módulo constituye uno de los componentes criptográficos más importantes del taller.
+
+Debe implementarse el cálculo TOTP desde cero.
+
+**Está prohibido utilizar librerías de alto nivel que generen o validen automáticamente TOTP.**
+
+Se permite utilizar primitivas criptográficas de bajo nivel, como HMAC-SHA1, SHA-1 y decodificación Base32.
+
+## 9.1. Arquitectura del módulo
+
+Crear:
+
+- `TotpService.ts`
+- `Base32Decoder.ts`
+- `HmacService.ts`
+- `TotpTypes.ts`
+- `TotpStorage.ts`
+- `TotpTimer.ts`
+
+Cada archivo debe tener responsabilidades independientes.
+
+## 9.2. Ingreso de la semilla
+
+Implementar obligatoriamente ingreso manual de una semilla Base32.
+
+Ejemplo de prueba:
+
+`JBSWY3DPEHPK3PXP`
+
+El sistema debe:
+
+- Eliminar espacios accidentales.
+- Validar caracteres Base32.
+- Manejar correctamente el padding cuando corresponda.
+- Rechazar semillas inválidas.
+- Decodificar Base32 a bytes.
+
+La semilla no debe aparecer en logs ni almacenarse en AsyncStorage.
+
+Persistirla en almacenamiento seguro mediante Expo SecureStore.
+
+## 9.3. Escaneo QR
+
+Como funcionalidad adicional, implementar escaneo de códigos QR compatibles con el formato:
+
+`otpauth://totp/UniSabana:estudiante@unisabana.edu.co?secret=JBSWY3DPEHPK3PXP&issuer=UniSabana`
+
+Extraer:
+
+- Tipo de cuenta.
+- Nombre de cuenta.
+- Issuer.
+- Secret.
+- Algoritmo.
+- Número de dígitos.
+- Periodo.
+
+Validar los parámetros recibidos.
+
+Para el alcance del taller, utilizar SHA1, 6 dígitos y periodo de 30 segundos.
+
+El escaneo QR es complementario: el ingreso manual debe funcionar incluso si no se dispone de cámara.
+
+## 9.4. Algoritmo matemático obligatorio
+
+Implementar TOTP según RFC 6238.
+
+### Paso 1: Ventana temporal
+
+Calcular:
+
+`T = floor(UnixTimestamp / 30)`
+
+El contador T debe representarse como un entero de 64 bits en formato Big-Endian.
+
+Crear un buffer de ocho bytes.
+
+### Paso 2: HMAC-SHA1
+
+Calcular:
+
+`H = HMAC-SHA1(SecretBytes, T)`
+
+El resultado debe ser un hash de 20 bytes.
+
+Utilizar una primitiva criptográfica de bajo nivel compatible con Expo SDK 58.
+
+No delegar el cálculo completo a una librería TOTP.
+
+### Paso 3: Dynamic Truncation
+
+Obtener:
+
+`offset = H[19] & 0x0F`
+
+Extraer cuatro bytes consecutivos:
+
+`bin_code = ((H[offset] & 0x7F) << 24) | ((H[offset+1] & 0xFF) << 16) | ((H[offset+2] & 0xFF) << 8) | (H[offset+3] & 0xFF)`
+
+### Paso 4: Generación del código
+
+Calcular:
+
+`TOTP = bin_code % 1000000`
+
+Formatear siempre con seis dígitos.
+
+Ejemplo:
+
+`054231`
+
+No eliminar los ceros iniciales.
+
+## 9.5. Temporizador
+
+Implementar un temporizador que represente el periodo de 30 segundos.
+
+Debe mostrar:
+
+- Tiempo restante.
+- Barra de progreso o indicador circular.
+- Código actual.
+- Cambio automático al comenzar una nueva ventana temporal.
+
+El temporizador debe calcularse utilizando el reloj del sistema, no simplemente restando uno a una variable sin considerar la hora real.
+
+Al llegar a cero:
+
+1. Calcular la nueva ventana temporal.
+2. Generar el nuevo código.
+3. Actualizar la interfaz.
+4. Reiniciar el indicador.
+
+Evitar intervalos duplicados y fugas de memoria.
+
+## 9.6. Funcionamiento offline
+
+El generador TOTP debe funcionar completamente sin conexión.
+
+No debe realizar peticiones HTTP para generar códigos.
+
+Una vez registrada la semilla, el usuario debe poder:
+
+1. Activar el modo avión.
+2. Abrir el Authenticator.
+3. Consultar el código.
+4. Esperar 30 segundos.
+5. Observar la generación automática de un nuevo código.
+
+La generación debe seguir funcionando sin Internet.
+
+IMPORTANTE: la verificación del código contra el backend y la autorización de la bóveda requieren conectividad. El funcionamiento offline se refiere al cálculo local del TOTP.
+
+## 9.7. Paridad con Google Authenticator
+
+La implementación debe producir exactamente los mismos códigos que Google Authenticator cuando se utiliza:
+
+- La misma semilla.
+- El mismo algoritmo.
+- El mismo periodo.
+- El mismo número de dígitos.
+- La misma ventana temporal.
+
+Incluir pruebas automatizadas utilizando vectores oficiales de RFC 6238, adaptados correctamente al perfil SHA1 de seis dígitos y periodo de 30 segundos.
+
+---
+
+# 10. PUNTO 4 — STEP-UP AUTHENTICATION
+
+Implementar un mecanismo de elevación temporal de privilegios.
+
+El usuario puede tener una sesión normal y, aun así, no estar autorizado para acceder a determinados recursos.
+
+La bóveda crítica requiere una segunda verificación.
+
+## 10.1. Access Token estándar
+
+El token normal debe incluir información como:
+
+- Identificador del usuario.
+- Fecha de emisión.
+- Fecha de expiración.
+- Claim `mfa_verified: false`.
+
+Este token permite acceder a los recursos normales, pero no a la bóveda crítica.
+
+## 10.2. Solicitud de acceso a la bóveda
+
+Endpoint:
+
+`GET /api/boveda-critica`
+
+Cuando el usuario realiza esta petición con un token estándar, el backend debe:
+
+1. Validar el access_token.
+2. Identificar al usuario.
+3. Comprobar el claim MFA.
+4. Rechazar el acceso si no se ha verificado el segundo factor.
+5. Responder con HTTP 403 Forbidden.
+
+La respuesta debe incluir:
+
+- Error: `mfa_required`.
+- Mensaje descriptivo.
+- `step_up_token` temporal.
+
+El token de Step-Up debe estar asociado al usuario, tener expiración corta y no permitir reutilizaciones indebidas.
+
+La aplicación debe detectar específicamente este error y abrir la interfaz de verificación 2FA.
+
+No tratar todos los errores 403 como si fueran solicitudes MFA.
+
+## 10.3. Verificación TOTP
+
+Endpoint:
+
+`POST /auth/mfa/verify`
+
+Debe recibir:
+
+- step_up_token.
+- Código TOTP de seis dígitos.
+
+El backend debe:
+
+1. Validar el step_up_token.
+2. Identificar al usuario.
+3. Recuperar su semilla TOTP registrada.
+4. Calcular la ventana temporal actual.
+5. Validar el código mediante HMAC-SHA1 y Dynamic Truncation.
+6. Aplicar tolerancia de desfase temporal.
+7. Consultar la protección Anti-Replay.
+8. Autorizar o rechazar la solicitud.
+
+## 10.4. Clock Skew
+
+Aceptar tres ventanas temporales:
+
+- C-1: 30 segundos anteriores.
+- C: ventana actual.
+- C+1: 30 segundos posteriores.
+
+La validación debe considerar los tres contadores.
+
+No aceptar códigos fuera de esas ventanas.
+
+## 10.5. Elevated Token
+
+Cuando el código sea válido, generar un nuevo token elevado.
+
+Debe contener:
+
+- Identificador del usuario.
+- Claim `mfa_verified: true`.
+- Fecha de emisión.
+- Fecha de expiración.
+- Identificador de sesión o contexto cuando sea necesario.
+
+Vida útil:
+
+**10 minutos.**
+
+El token elevado debe permitir consultar la bóveda crítica.
+
+No modificar permanentemente el nivel de autenticación de la sesión original.
+
+La elevación debe expirar y requerir una nueva verificación cuando corresponda.
+
+## 10.6. Acceso a la bóveda
+
+Después de recibir el elevated_token:
+
+1. Guardarlo en memoria, no en almacenamiento persistente.
+2. Reintentar `GET /api/boveda-critica` utilizando el token elevado.
+3. Validar la respuesta.
+4. Mostrar el contenido de la bóveda.
+5. Mostrar el estado de seguridad elevado.
+6. Controlar su expiración.
+
+Si el token elevado expira, impedir el acceso posterior hasta completar otra verificación.
+
+---
+
+# 11. PUNTO 5 — PROTECCIÓN ANTI-REPLAY
+
+Implementar obligatoriamente un mecanismo que impida utilizar varias veces un mismo código TOTP válido.
+
+## 11.1. Requisito
+
+Cuando un código TOTP haya sido validado para un usuario, debe registrarse en una caché Anti-Replay.
+
+Tiempo de vida:
+
+**90 segundos.**
+
+Si se intenta enviar nuevamente el mismo código dentro de ese periodo, responder:
+
+`HTTP 409 Conflict`
+
+Mensaje:
+
+`Replay Attack Detected`
+
+## 11.2. Implementación
+
+Crear un servicio independiente:
+
+`AntiReplayService`
+
+Debe:
+
+- Identificar al usuario.
+- Identificar el código o contador temporal validado.
+- Registrar el uso.
+- Controlar su TTL.
+- Detectar duplicados.
+- Rechazar reutilizaciones.
+
+Preferiblemente utilizar el contador temporal validado como identificador del evento, para evitar ambigüedades.
+
+La operación de comprobar y registrar debe ser atómica, evitando que dos solicitudes simultáneas utilicen el mismo código.
+
+Para este laboratorio se permite utilizar una caché en memoria, ya que no se requiere infraestructura distribuida.
+
+Documentar que la caché en memoria se reinicia cuando se reinicia el backend y que una implementación de producción necesitaría almacenamiento persistente o distribuido.
+
+---
+
+# 12. ENDPOINTS DEL BACKEND
+
+Implementar como mínimo los siguientes endpoints:
+
+| Método | Endpoint | Responsabilidad |
+|---|---|---|
+| GET | `/health` | Comprobar disponibilidad |
+| GET | `/oauth/authorize` | Iniciar autorización OAuth |
+| POST | `/auth/oauth/token` | Intercambiar authorization_code |
+| POST | `/auth/refresh` | Renovar access_token |
+| POST | `/auth/logout` | Cerrar y revocar la sesión |
+| GET | `/auth/me` | Obtener usuario autenticado |
+| POST | `/auth/mfa/enroll` | Registrar la semilla MFA |
+| GET | `/api/boveda-critica` | Consultar recurso protegido |
+| POST | `/auth/mfa/verify` | Verificar código TOTP y elevar privilegios |
+
+Puedes añadir endpoints auxiliares para completar correctamente el flujo, siempre que no sustituyan los obligatorios.
+
+## 12.1. Respuestas HTTP
+
+Utilizar códigos HTTP apropiados:
+
+- 200: operación correcta.
+- 201: recurso creado.
+- 400: solicitud inválida.
+- 401: sesión inválida o token expirado.
+- 403: autorización adicional requerida o acceso denegado.
+- 409: código TOTP reutilizado.
+- 422: validación de datos incorrectos.
+- 500: error interno.
+
+Las respuestas deben mantener una estructura consistente.
+
+No devolver trazas internas, secretos, semillas o información criptográfica sensible.
+
+---
+
+# 13. CONFIGURACIÓN DE RED Y ENTORNO
+
+La aplicación debe conectarse al backend mediante una URL configurable.
+
+Crear:
+
+`.env.example`
+
+Para el frontend:
+
+`EXPO_PUBLIC_API_URL=http://TU_IP_LOCAL:8000`
+
+Para el backend:
+
+- APP_ENV.
+- JWT_SECRET_KEY.
+- ACCESS_TOKEN_EXPIRE_MINUTES=5.
+- REFRESH_TOKEN_EXPIRE_DAYS=30.
+- ELEVATED_TOKEN_EXPIRE_MINUTES=10.
+- STEP_UP_TOKEN_EXPIRE_MINUTES.
+- TOTP_PERIOD=30.
+- ANTI_REPLAY_TTL=90.
+- CREDENTIALS de demostración.
+
+No introducir secretos reales en el repositorio.
+
+No asumir que `localhost` desde el teléfono apunta al computador donde se ejecuta FastAPI.
+
+Documentar la configuración para:
+
+- Emulador Android.
+- Dispositivo Android físico conectado a la misma red.
+- Entorno iOS de pruebas.
+
+---
+
+# 14. MANEJO DE ERRORES Y ESTADOS
+
+La aplicación debe manejar correctamente:
+
+- Error al iniciar OAuth.
+- Usuario cancela autenticación.
+- Callback inválido.
+- State incorrecto.
+- Authorization code expirado.
+- PKCE incorrecto.
+- Error de conexión.
+- Backend no disponible.
+- Access token expirado.
+- Refresh token revocado.
+- SecureStore no disponible.
+- Semilla Base32 inválida.
+- QR no compatible.
+- Código TOTP incorrecto.
+- Step-up token expirado.
+- Código TOTP reutilizado.
+- Elevated token expirado.
+- Usuario sin permisos.
+
+No mostrar errores técnicos directamente al usuario.
+
+Los mensajes deben ser claros y diferenciados.
+
+En el código sí deben existir errores tipados y registros de depuración seguros.
+
+Nunca registrar:
+
+- Contraseñas.
+- Refresh tokens.
+- Access tokens completos.
+- Step-up tokens.
+- Semillas TOTP.
+- Códigos de autenticación.
+
+---
+
+# 15. PRUEBAS AUTOMATIZADAS OBLIGATORIAS
+
+No considerar el proyecto terminado hasta contar con pruebas que comprueben la lógica principal.
+
+## 15.1. Pruebas PKCE
+
+Comprobar:
+
+- Generación de code_verifier.
+- Longitud correcta.
+- Caracteres permitidos.
+- Generación de code_challenge.
+- Coincidencia entre el backend y el frontend.
+- Rechazo de verifier incorrecto.
+- Rechazo de state incorrecto.
+- Rechazo de authorization codes reutilizados.
+
+## 15.2. Pruebas TOTP
+
+Comprobar:
+
+- Decodificación Base32.
+- Conversión del contador a Big-Endian.
+- HMAC-SHA1.
+- Dynamic Truncation.
+- Generación de seis dígitos.
+- Preservación de ceros iniciales.
+- Cambio de código al cambiar la ventana temporal.
+- Validación de Clock Skew.
+- Coincidencia con vectores RFC 6238.
+
+No utilizar una librería de alto nivel de TOTP como sustituto de la implementación propia.
+
+## 15.3. Pruebas Anti-Replay
+
+Comprobar:
+
+1. Primer uso del código: aceptado.
+2. Segundo uso inmediato: rechazado con 409.
+3. Uso después de expirar el TTL: comportamiento correspondiente al nuevo estado temporal.
+4. Dos solicitudes simultáneas: solamente una puede utilizar el mismo código.
+
+## 15.4. Pruebas de tokens
+
+Comprobar:
+
+- Access token válido.
+- Access token expirado.
+- Refresh token válido.
+- Refresh token expirado.
+- Refresh token revocado.
+- Elevated token válido.
+- Elevated token expirado.
+- Rechazo de acceso directo a la bóveda.
+
+## 15.5. Pruebas de concurrencia
+
+Simular varias peticiones que reciban 401 simultáneamente.
+
+Verificar que:
+
+- Solamente se ejecute una renovación.
+- Las peticiones se encolen.
+- Todas se reintenten después de la renovación.
+- No existan solicitudes duplicadas innecesarias.
+- No se generen bucles de renovación.
+
+---
+
+# 16. CINCO PRUEBAS DE ACEPTACIÓN DEL PROFESOR
+
+Estas pruebas son obligatorias y deben poder ejecutarse durante la sustentación.
+
+Diseña la aplicación pensando en ellas.
+
+## PRUEBA 1 — OAuth + PKCE con navegador del sistema
+
+Procedimiento:
+
+1. Abrir la aplicación.
+2. Presionar Iniciar Sesión.
+3. Abrir el navegador seguro del sistema.
+4. Completar el proceso de autenticación.
+5. Regresar mediante Deep Link.
+6. Validar state.
+7. Intercambiar authorization_code y code_verifier.
+8. Recibir los tokens.
+
+Resultado esperado:
+
+- El navegador utilizado no es una WebView embebida.
+- El callback se procesa correctamente.
+- El state es validado.
+- PKCE funciona.
+- El refresh_token queda almacenado en SecureStore.
+- El access_token queda en memoria.
+
+## PRUEBA 2 — Paridad estándar TOTP
+
+Procedimiento:
+
+1. Abrir el Authenticator de la aplicación.
+2. Registrar la misma semilla utilizada en Google Authenticator.
+3. Comparar los códigos al mismo tiempo.
+
+Resultado esperado:
+
+- Ambos muestran exactamente los mismos seis dígitos.
+- Los códigos se actualizan en las mismas ventanas temporales.
+- No existen diferencias en el algoritmo.
+
+## PRUEBA 3 — Cálculo offline en modo avión
+
+Procedimiento:
+
+1. Registrar previamente la semilla.
+2. Abrir el Authenticator.
+3. Activar el modo avión.
+4. Esperar a que el contador llegue a cero.
+5. Observar el nuevo código.
+
+Resultado esperado:
+
+- El código se sigue generando.
+- El contador continúa funcionando.
+- No se necesitan peticiones de red.
+- El algoritmo no presenta errores.
+
+## PRUEBA 4 — Step-Up Authentication y Bóveda
+
+Procedimiento:
+
+1. Iniciar sesión normalmente.
+2. Entrar en Bóveda Crítica.
+3. Intentar acceder al recurso.
+4. Recibir HTTP 403 con `mfa_required`.
+5. Mostrar la pantalla de verificación.
+6. Introducir el código TOTP actual.
+7. Enviar la solicitud al backend.
+8. Recibir elevated_token.
+9. Reintentar el acceso a la bóveda.
+
+Resultado esperado:
+
+- El acceso directo es rechazado.
+- Se solicita el segundo factor.
+- El backend verifica realmente el código.
+- Se emite un elevated_token.
+- El usuario puede acceder a la bóveda después de la verificación.
+
+## PRUEBA 5 — Ataque de repetición Anti-Replay
+
+Procedimiento:
+
+1. Utilizar un código TOTP válido para superar la verificación.
+2. Enviar inmediatamente el mismo código nuevamente.
+3. Comprobar la respuesta del backend.
+
+Resultado esperado:
+
+- Primera solicitud: aceptada.
+- Segunda solicitud: HTTP 409 Conflict.
+- Mensaje: `Replay Attack Detected`.
+- El código no puede reutilizarse dentro del TTL de 90 segundos.
+
+---
+
+# 17. CALIDAD DE CÓDIGO Y BUENAS PRÁCTICAS
+
+El código debe cumplir los siguientes criterios:
+
+- TypeScript estricto.
+- Tipos e interfaces bien definidos.
+- Componentes pequeños y reutilizables.
+- Servicios independientes.
+- Separación de responsabilidades.
+- Nombres descriptivos.
+- Manejo centralizado de errores.
+- Validación de entradas.
+- Evitar duplicación de código.
+- Evitar componentes gigantes.
+- Evitar lógica de negocio dentro de las pantallas.
+- Evitar dependencias innecesarias.
+- Evitar código muerto.
+- Evitar valores sensibles hardcodeados.
+- Evitar `any` salvo justificación documentada.
+
+No utilizar comentarios para sustituir una implementación real.
+
+No implementar funcionalidades falsas para aparentar que un requisito está terminado.
+
+Cuando exista una limitación técnica, explicarla y proponer una solución compatible con el taller.
+
+---
+
+# 18. DOCUMENTACIÓN Y ENTREGABLES
+
+El repositorio debe incluir:
+
+## 18.1. README.md principal
+
+Debe explicar:
+
+- Descripción del proyecto.
+- Arquitectura general.
+- Tecnologías utilizadas.
+- Estructura del repositorio.
+- Requisitos de instalación.
+- Configuración de variables de entorno.
+- Ejecución del backend.
+- Ejecución de la aplicación.
+- Configuración de Deep Linking.
+- Configuración para Android.
+- Configuración para dispositivos físicos.
+- Ejecución de pruebas.
+- Credenciales de demostración.
+- Procedimiento para realizar las cinco pruebas de aceptación.
+
+## 18.2. README del backend
+
+Debe explicar cómo:
+
+- Crear el entorno virtual.
+- Instalar dependencias.
+- Configurar `.env`.
+- Ejecutar FastAPI.
+- Consultar Swagger.
+- Ejecutar Pytest.
+
+## 18.3. README del frontend
+
+Debe explicar cómo:
+
+- Instalar dependencias.
+- Configurar la URL del backend.
+- Ejecutar Expo.
+- Abrir la aplicación en Android.
+- Configurar el esquema de Deep Linking.
+- Ejecutar las pruebas.
+- Generar una build de desarrollo si es necesaria.
+
+## 18.4. Video demostrativo
+
+Preparar un guion de 60 a 90 segundos como respaldo que muestre:
+
+- Inicio de sesión.
+- Authenticator.
+- Funcionamiento offline.
+- Solicitud de Step-Up.
+- Acceso a la bóveda.
+
+---
+
+# 19. RÚBRICA DE EVALUACIÓN — OBJETIVO DE SOBRESALIENTE
+
+La aplicación debe apuntar al nivel sobresaliente (4.5–5.0).
+
+| Criterio | Peso | Objetivo |
+|---|---:|---|
+| Implementación criptográfica TOTP | 25% | HMAC-SHA1 y Dynamic Truncation propios, modo avión y paridad con Google Authenticator |
+| OAuth 2.0 con PKCE y Deep Linking | 25% | Verifier y Challenge correctos, navegador seguro, callback y validación de state |
+| Almacenamiento seguro y Silent Refresh | 20% | Access token en memoria, refresh token en SecureStore y cola concurrente de renovación |
+| Step-Up Authentication y Anti-Replay | 15% | Recurso protegido, elevación de privilegios y bloqueo de reutilización |
+| Calidad UI/UX y código limpio | 15% | Interfaz pulida, contador visual, teclado numérico, arquitectura modular y tipado estricto |
+
+No basta con que la aplicación visualmente parezca cumplir estos criterios. Cada uno debe estar respaldado por código funcional y pruebas.
+
+---
+
+# 20. METODOLOGÍA DE DESARROLLO OBLIGATORIA
+
+No desarrolles todo de manera desordenada ni generes cientos de archivos sin validar su funcionamiento.
+
+Trabaja mediante fases.
+
+## FASE 1 — Análisis y planificación
+
+Antes de escribir código:
+
+1. Analiza todos los requisitos.
+2. Identifica dependencias técnicas.
+3. Diseña la arquitectura.
+4. Define los contratos de la API.
+5. Define los modelos y tipos.
+6. Diseña el flujo de autenticación.
+7. Diseña el flujo de Step-Up.
+8. Identifica posibles incompatibilidades de Expo SDK 58.
+9. Presenta un plan de implementación.
+
+Genera un documento `ARCHITECTURE.md`.
+
+No omitas requisitos del taller.
+
+## FASE 2 — Configuración del proyecto
+
+Crear:
+
+- Proyecto Expo SDK 58.
+- TypeScript.
+- Estructura de carpetas.
+- Sistema de navegación.
+- Backend FastAPI.
+- Entorno virtual.
+- Dependencias.
+- Variables de entorno.
+- Configuración de Deep Linking.
+
+Verificar que ambos proyectos arranquen correctamente antes de continuar.
+
+## FASE 3 — Backend y contratos de API
+
+Implementar primero los servicios y endpoints del backend.
+
+Prioridad:
+
+1. Health check.
+2. Proveedor OAuth de laboratorio.
+3. PKCE.
+4. Emisión y validación de tokens.
+5. Refresh.
+6. Registro TOTP.
+7. Verificación TOTP.
+8. Anti-Replay.
+9. Step-Up.
+10. Bóveda crítica.
+
+Crear pruebas automatizadas para cada módulo.
+
+## FASE 4 — Aplicación móvil y autenticación
+
+Implementar:
+
+1. Navegación.
+2. Pantalla inicial.
+3. OAuth.
+4. PKCE.
+5. Deep Linking.
+6. Gestión de sesión.
+7. SecureStore.
+8. Cliente HTTP.
+9. Silent Refresh Queue.
+
+Probar el flujo completo con el backend.
+
+## FASE 5 — Authenticator
+
+Implementar:
+
+1. Base32.
+2. HMAC-SHA1.
+3. Conversión Big-Endian.
+4. Dynamic Truncation.
+5. TOTP.
+6. Temporizador.
+7. Almacenamiento seguro de la semilla.
+8. Ingreso manual.
+9. Escaneo QR.
+
+Validar los resultados con pruebas y Google Authenticator.
+
+## FASE 6 — Step-Up y Bóveda
+
+Implementar:
+
+1. Solicitud de recurso protegido.
+2. Captura del error 403.
+3. Modal de segundo factor.
+4. Validación TOTP.
+5. Protección Anti-Replay.
+6. Emisión del elevated_token.
+7. Acceso a la bóveda.
+8. Expiración de privilegios.
+
+Probar el flujo completo de extremo a extremo.
+
+## FASE 7 — UI/UX y refinamiento
+
+Mejorar:
+
+- Diseño visual.
+- Jerarquía de información.
+- Navegación.
+- Animaciones.
+- Estados de carga.
+- Mensajes de error.
+- Adaptación a Android.
+- Accesibilidad.
+- Experiencia de autenticación.
+
+No cambiar ni debilitar la lógica de seguridad para facilitar el diseño.
+
+## FASE 8 — Auditoría y validación final
+
+Ejecutar:
+
+- TypeScript.
+- Expo Doctor.
+- Pruebas del backend.
+- Pruebas del frontend.
+- Pruebas criptográficas.
+- Pruebas de concurrencia.
+- Pruebas de integración.
+- Las cinco pruebas de aceptación.
+
+Corregir todos los errores relevantes.
+
+Entregar un informe de cumplimiento.
+
+---
+
+# 21. REGLAS DE TRABAJO PARA LA IA DE PROGRAMACIÓN
+
+Estas instrucciones son obligatorias durante todo el desarrollo.
+
+### Regla 1 — Analizar antes de modificar
+
+Si ya existe un proyecto, inspecciona primero su estructura, dependencias y archivos.
+
+No sobrescribas archivos existentes sin comprender su función.
+
+### Regla 2 — No inventar implementaciones
+
+Si no conoces la compatibilidad de una librería con Expo SDK 58, verifica su documentación oficial antes de utilizarla.
+
+### Regla 3 — Trabajar de forma incremental
+
+Implementa módulos completos y verificables.
+
+No avances dejando errores importantes en fases anteriores.
+
+### Regla 4 — Mantener el contexto
+
+Mantén actualizados:
+
+- `ARCHITECTURE.md`
+- `IMPLEMENTATION_PLAN.md`
+- `PROGRESS.md`
+
+Registra qué está implementado, qué está probado y qué falta.
+
+### Regla 5 — No confundir interfaz con funcionalidad
+
+Un botón de autenticación no está terminado porque cambie de pantalla.
+
+Un Authenticator no está terminado porque muestre seis números.
+
+Una bóveda no está protegida porque aparezca un candado.
+
+La funcionalidad debe estar conectada con la lógica real y el backend.
+
+### Regla 6 — Seguridad primero
+
+No sacrificar PKCE, almacenamiento seguro, validación de tokens o Anti-Replay por simplificar el desarrollo.
+
+### Regla 7 — Verificar cada fase
+
+Después de cada módulo:
+
+1. Revisar el código.
+2. Ejecutar pruebas.
+3. Corregir errores.
+4. Documentar resultados.
+5. Continuar.
+
+### Regla 8 — No declarar éxito sin comprobarlo
+
+No afirmes que una funcionalidad funciona si no has podido probarla.
+
+Diferencia claramente:
+
+- Implementado.
+- Probado.
+- Probado parcialmente.
+- Pendiente.
+- Bloqueado por limitación técnica.
+
+### Regla 9 — Priorizar Android
+
+El dispositivo principal de demostración será Android.
+
+Prioriza la correcta ejecución en Android físico o emulador sin abandonar una arquitectura compatible con iOS.
+
+Si una funcionalidad requiere módulos nativos que no están disponibles en Expo Go, documentarlo y configurar un development build compatible.
+
+### Regla 10 — No detenerse en la planificación
+
+La planificación es el primer paso, no el resultado final.
+
+Después de presentar la arquitectura y el plan, comienza a implementar el proyecto. No esperes aprobación entre fases salvo que exista una decisión que realmente necesite información del usuario.
+
+---
+
+# 22. CRITERIOS PARA CONSIDERAR TERMINADO EL PROYECTO
+
+El proyecto solamente podrá declararse terminado cuando:
+
+- [ ] La aplicación se ejecuta correctamente con Expo SDK 58.
+- [ ] El backend FastAPI se ejecuta correctamente.
+- [ ] La aplicación se conecta al backend.
+- [ ] OAuth funciona mediante navegador seguro.
+- [ ] PKCE se genera y valida correctamente.
+- [ ] Deep Linking funciona.
+- [ ] State anti-CSRF funciona.
+- [ ] Access token permanece en memoria.
+- [ ] Refresh token se guarda en SecureStore.
+- [ ] Silent Refresh Queue gestiona peticiones concurrentes.
+- [ ] El Authenticator calcula TOTP desde cero.
+- [ ] La generación funciona offline.
+- [ ] Los códigos coinciden con Google Authenticator.
+- [ ] Se puede registrar una semilla manualmente.
+- [ ] El QR puede escanearse si se implementó esa opción.
+- [ ] La bóveda rechaza el token estándar.
+- [ ] El backend solicita Step-Up.
+- [ ] La verificación TOTP funciona.
+- [ ] Se emite elevated_token.
+- [ ] La bóveda acepta únicamente la sesión elevada válida.
+- [ ] Anti-Replay responde 409 ante la reutilización.
+- [ ] Las pruebas automatizadas principales pasan.
+- [ ] La interfaz funciona correctamente en Android.
+- [ ] Existe documentación suficiente para reproducir el proyecto.
+
+---
+
+# 23. INSTRUCCIÓN FINAL
+
+Desarrolla una solución completa, funcional, modular y profesional.
+
+La prioridad es conseguir una implementación técnicamente correcta que cumpla la totalidad del taller y permita demostrar de manera confiable los cinco escenarios de aceptación.
+
+No reduzcas el proyecto a una demo visual.
+
+No sustituyas los algoritmos solicitados por librerías de alto nivel.
+
+No elimines requisitos para ahorrar tiempo.
+
+No inventes resultados de pruebas.
+
+Antes de finalizar, realiza una auditoría de cada punto del enunciado y compáralo con el código real.
+
+**Comienza analizando el entorno de trabajo y preparando el documento ARCHITECTURE.md. Después, presenta el plan de implementación y comienza el desarrollo por fases hasta completar la aplicación y el backend.**

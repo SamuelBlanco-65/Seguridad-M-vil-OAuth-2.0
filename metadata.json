@@ -1,0 +1,7 @@
+{
+  "name": "Mobile Security Lab — OAuth PKCE & Step-Up TOTP",
+  "description": "Interactive mobile security platform & reference suite for OAuth 2.0 PKCE (RFC 7636), zero-dependency TOTP (RFC 6238), Silent Refresh Queue, and Step-Up 2FA Anti-Replay (UniSabana Sesión 14).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
